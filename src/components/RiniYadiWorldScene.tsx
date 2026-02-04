@@ -3,6 +3,8 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
 import { gsap } from 'gsap';
+import { useNavigate } from 'react-router-dom';
+import { Rocket } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 // Basic GLSL shaders for the particle system
@@ -58,6 +60,8 @@ const RiniYadiWorldScene: React.FC = () => {
   const uniformsRef = useRef<any>({});
   const mouseRef = useRef(new THREE.Vector3());
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
+
 
   const animate = useCallback(() => {
     if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !particlesRef.current) return;
@@ -80,9 +84,6 @@ const RiniYadiWorldScene: React.FC = () => {
       positions[i] = originalX + Math.sin(uniformsRef.current.uTime.value * 0.5 + randomVal * 10) * 0.01;
       positions[i + 1] = originalY + Math.cos(uniformsRef.current.uTime.value * 0.5 + randomVal * 10) * 0.01;
       positions[i + 2] = originalZ + Math.sin(uniformsRef.current.uTime.value * 0.5 + randomVal * 10) * 0.01;
-
-      // Apply hover attraction (handled in shader for performance, but can be done here too)
-      // For now, let's rely on the shader for hover effect
     }
     (particlesRef.current.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
 
@@ -204,64 +205,56 @@ const RiniYadiWorldScene: React.FC = () => {
     window.addEventListener('mouseleave', onMouseLeave);
 
     // Click interaction
-    const onClick = () => {
+    const onClick = (event: MouseEvent) => {
+      // If clicking the button, don't trigger scene event to avoid double nav
+      if ((event.target as HTMLElement).closest('#enter-button')) return;
       if (!particlesRef.current || !cameraRef.current) return;
 
+      // Instant reveal flow instead of long burst
+      // Zoom in faster
+      gsap.to(camera.position, {
+        z: 0.5,
+        duration: 1.2,
+        ease: "power2.inOut",
+        onComplete: () => {
+          // Reveal text immediately after zoom
+          const welcomeTextElement = document.getElementById('welcome-text');
+          if (welcomeTextElement) {
+            gsap.to(welcomeTextElement, {
+              opacity: 1,
+              y: 0,
+              duration: 1,
+              ease: "power2.out"
+            });
+          }
+          // Reveal button slightly after
+          const enterButton = document.getElementById('enter-button');
+          if (enterButton) {
+            gsap.to(enterButton, {
+              opacity: 1,
+              y: 0,
+              pointerEvents: 'auto',
+              duration: 1,
+              delay: 0.3,
+              ease: "power2.out"
+            });
+          }
+        }
+      });
+
+      // Optional: fast disperse effect while zooming
       const currentPositions = (particlesRef.current.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
       const originalPositions = (particlesRef.current.geometry as THREE.BufferGeometry).attributes.aOriginalPosition.array as Float32Array;
-      const tempPositions = new Float32Array(currentPositions.length);
 
-      // Store current positions to animate from
-      for (let i = 0; i < currentPositions.length; i++) {
-        tempPositions[i] = currentPositions[i];
-      }
-
-      // Animate particles outward
       gsap.to(currentPositions, {
         endArray: Array.from(currentPositions).map((val, i) => {
-          const originalX = originalPositions[i - (i % 3)];
-          const originalY = originalPositions[i - (i % 3) + 1];
-          const originalZ = originalPositions[i - (i % 3) + 2];
-          const factor = 1.5; // How much they burst outward
-          if (i % 3 === 0) return originalX * factor;
-          if (i % 3 === 1) return originalY * factor;
-          return originalZ * factor;
+          if (i % 3 === 2) return val + (Math.random() - 0.5) * 5; // disperse Z primarily
+          return val + (Math.random() - 0.5) * 2;
         }),
-        duration: 1,
+        duration: 1.5,
         ease: "power2.out",
         onUpdate: () => {
-          (particlesRef.current!.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
-        },
-        onComplete: () => {
-          // Animate particles back to original positions
-          gsap.to(currentPositions, {
-            endArray: Array.from(originalPositions),
-            duration: 1.5,
-            ease: "power2.inOut",
-            onUpdate: () => {
-              (particlesRef.current!.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
-            },
-            onComplete: () => {
-              // After re-assembly, zoom in and show text
-              gsap.to(camera.position, {
-                z: 0.5, // Zoom in closer
-                duration: 2,
-                ease: "power2.inOut",
-                onComplete: () => {
-                  // Placeholder for text reveal
-                  const welcomeTextElement = document.getElementById('welcome-text');
-                  if (welcomeTextElement) {
-                    gsap.to(welcomeTextElement, {
-                      opacity: 1,
-                      y: 0,
-                      duration: 1.5,
-                      ease: "power2.out"
-                    });
-                  }
-                }
-              });
-            }
-          });
+          if (particlesRef.current) (particlesRef.current.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
         }
       });
     };
@@ -285,15 +278,63 @@ const RiniYadiWorldScene: React.FC = () => {
 
   return (
     <div ref={mountRef} className="absolute inset-0 overflow-hidden">
-      <div
-        id="welcome-text"
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-4xl md:text-6xl font-serif opacity-0 -translate-y-10 pointer-events-none"
-        style={{ textShadow: '0 0 15px rgba(255,255,255,0.7)', letterSpacing: '0.1em' }}
-      >
-        Welcome to RiniYadi World!
+      {/* Content Container */}
+      <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl px-6 flex flex-col items-start gap-8 z-20 pointer-events-none">
+        <div
+          id="welcome-text"
+          className="text-white text-4xl md:text-6xl font-serif font-bold text-left opacity-0 translate-y-10 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+          style={{ letterSpacing: '0.05em', lineHeight: '1.2' }}
+        >
+          Welcome to
+          <br />
+          RiniYadi World!
+        </div>
+
+        <button
+          id="enter-button"
+          className="opacity-0 translate-y-10 group cursor-pointer pointer-events-none"
+          onClick={(e) => {
+            e.stopPropagation();
+
+            // 1. Fade out UI
+            const uiElements = [document.getElementById('welcome-text'), document.getElementById('enter-button'), document.querySelector('.absolute.bottom-8')];
+            gsap.to(uiElements, {
+              opacity: 0,
+              duration: 0.5,
+              ease: "power2.in"
+            });
+
+            // 2. Zoom Camera In (Fly through)
+            if (cameraRef.current) {
+              gsap.to(cameraRef.current.position, {
+                z: -5, // Fly *past* the center
+                duration: 2,
+                ease: "power4.in",
+                onComplete: () => {
+                  navigate('/enter-world');
+                }
+              });
+            }
+
+            // 3. Accelerate Particles (Warp Speed effect)
+            if (uniformsRef.current) {
+              gsap.to(uniformsRef.current.uTime, {
+                value: uniformsRef.current.uTime.value + 20, // Speed up time/movement
+                duration: 2,
+                ease: "power4.in"
+              });
+            }
+          }}
+        >
+          <div className="relative px-8 py-3 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-full transition-all duration-300 transform group-hover:scale-105 flex items-center gap-2 overflow-hidden shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+            <span className="text-white font-serif tracking-widest uppercase text-sm font-semibold">Enter the World</span>
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+          </div>
+        </button>
       </div>
+
       <div
-        className="absolute bottom-8 left-1/2 -translate-x-1/2 text-gray-400 text-sm md:text-base opacity-0 pointer-events-none"
+        className="absolute bottom-8 left-1/2 -translate-x-1/2 text-gray-400 text-sm md:text-base opacity-0 pointer-events-none text-center px-4"
         style={{ textShadow: '0 0 5px rgba(255,255,255,0.3)' }}
       >
         A world where moments, memories, and feelings exist quietly.
